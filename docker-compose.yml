@@ -1,0 +1,103 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Local LLM Service (Ollama Engine)
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-code-engine
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    networks:
+      - agent-internal-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/version || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # 2. Automated Model Initializer
+  # ---------------------------------------------------------------------------
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-model-puller
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        echo 'Pulling local coding model qwen2.5-coder:7b...' &&
+        ollama pull qwen2.5-coder:7b &&
+        echo 'Model qwen2.5-coder:7b successfully loaded into Ollama engine!'
+      "
+    networks:
+      - agent-internal-net
+
+  # ---------------------------------------------------------------------------
+  # 3. Open Interpreter Orchestrator
+  # ---------------------------------------------------------------------------
+  interpreter-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    container_name: open-interpreter-orchestrator
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - MODEL_NAME=qwen2.5-coder:7b
+      - INTERPRETER_CONFIG=/app/config/open_interpreter_config.yaml
+      - WORKSPACE_DIR=/sandbox_workspace
+      - FIGMA_TOKEN=${FIGMA_TOKEN:-mock_figma_token_sipaf_12345}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-https://discord.com/api/webhooks/mock/test}
+    volumes:
+      - ./config:/app/config:ro
+      - ./core:/app/core:ro
+      - ./playbooks:/app/playbooks:ro
+      - sandbox_data:/sandbox_workspace:rw
+    networks:
+      - agent-internal-net
+    command: python3 core/orchestrator.py --headless --config config/open_interpreter_config.yaml
+
+  # ---------------------------------------------------------------------------
+  # 4. Isolated Docker Sandbox Execution Environment
+  # ---------------------------------------------------------------------------
+  sandbox-runner:
+    image: python:3.12-slim
+    container_name: sandbox-code-executor
+    read_only: true
+    tmpfs:
+      - /tmp:exec,mode=1777
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW # Permite ping/traceroute para diagnósticos de rede e VPN
+    user: "1000:1000"
+    volumes:
+      - sandbox_data:/workspace:rw
+    environment:
+      - HOME=/tmp
+      - PYTHONUNBUFFERED=1
+    networks:
+      - agent-internal-net
+    command: tail -f /dev/null
+
+volumes:
+  ollama_models:
+    driver: local
+  sandbox_data:
+    driver: local
+
+networks:
+  agent-internal-net:
+    driver: bridge
+    internal: false # Permite chamadas HTTP controladas para APIs externas (Figma/Discord)

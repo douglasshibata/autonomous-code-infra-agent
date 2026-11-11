@@ -1,0 +1,34 @@
+{
+  "version": "1.0.0",
+  "guardrails": {
+    "blacklisted_commands": [
+      "rm -rf /",
+      "rm -rf /*",
+      "mkfs",
+      "dd if=",
+      ":(){ :|:& };:",
+      "chmod -R 777 /",
+      "shutdown",
+      "reboot",
+      "cat /etc/shadow",
+      "nc -e /bin/sh"
+    ],
+    "restricted_system_paths": [
+      "/etc",
+      "/usr",
+      "/boot",
+      "/var/log",
+      "/root",
+      "/proc",
+      "/sys"
+    ],
+    "allowed_workspace": "/sandbox_workspace",
+    "secret_patterns": [
+      "FIGMA_[A-Z0-9_]*",
+      "DISCORD_WEBHOOK_[A-Z0-9_]*",
+      "eyJ[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_-]{10,}",
+      "https://discord\\.com/api/webhooks/[0-9]+/[a-zA-Z0-9_-]+"
+    ],
+    "masked_replacement": "[REDACTED_SECRET]"
+  }
+}
